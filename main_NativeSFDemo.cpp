@@ -4,9 +4,10 @@
 
 #define LOG_TAG "NativeSFDemo"
 
+#include <GLES/gl.h>
 #include <binder/IPCThreadState.h>
-#include <binder/ProcessState.h>
 #include <binder/IServiceManager.h>
+#include <binder/ProcessState.h>
 #include <hardware/gralloc.h>
 #include <ui/GraphicBuffer.h>
 #include <utils/Log.h>
@@ -17,40 +18,38 @@ using namespace android;
 
 bool mQuit = false;
 
-void fillRGBA8Buffer(uint8_t* img, int width, int height, int stride, int r, int g, int b) {
-    for (int y = 0; y < height; y++) {
-        for (int x = 0; x < width; x++) {
-            uint8_t* pixel = img + (4 * (y*stride + x));
-            pixel[0] = r;
-            pixel[1] = g;
-            pixel[2] = b;
-            pixel[3] = 0;
-        }
-    }
-}
-
 int drawNativeSurface(sp<NativeSurfaceWrapper> nativeSurface) {
     status_t err = NO_ERROR;
-    int countFrame = 0;
-    ANativeWindowBuffer *nativeBuffer = nullptr;
+    EGLDisplay display;
+    EGLint majorVersion;
+    EGLint minorVersion;
+    EGLint w, h;
+    EGLSurface eglSurface = EGL_NO_SURFACE;
+    EGLint numConfigs;
+    EGLConfig config;
+    EGLContext eglContext = EGL_NO_CONTEXT;
+    EGLint attrs[] = {EGL_SURFACE_TYPE, EGL_WINDOW_BIT, EGL_RENDERABLE_TYPE,
+                      EGL_OPENGL_ES2_BIT, EGL_NONE};
     ANativeWindow* nativeWindow = nativeSurface->getSurface().get();
-
-    // 1. connect the ANativeWindow as a CPU client. Buffers will be queued after being filled using the CPU
-    err = native_window_api_connect(nativeWindow, NATIVE_WINDOW_API_CPU);
-    if (err != NO_ERROR) {
-        ALOGE("ERROR: unable to native_window_api_connect\n");
-        return EXIT_FAILURE;
+    /*
+    // 1. connect the ANativeWindow as a CPU client. Buffers will be queued
+    after being filled using the CPU err =
+    native_window_api_connect(nativeWindow, NATIVE_WINDOW_API_CPU); if (err !=
+    NO_ERROR) { ALOGE("ERROR: unable to native_window_api_connect\n"); return
+    EXIT_FAILURE;
     }
-
+    */
     // 2. set the ANativeWindow dimensions
-    err = native_window_set_buffers_user_dimensions(nativeWindow, nativeSurface->width(), nativeSurface->height());
+    err = native_window_set_buffers_user_dimensions(
+        nativeWindow, nativeSurface->width(), nativeSurface->height());
     if (err != NO_ERROR) {
         ALOGE("ERROR: unable to native_window_set_buffers_user_dimensions\n");
         return EXIT_FAILURE;
     }
 
     // 3. set the ANativeWindow format
-    err = native_window_set_buffers_format(nativeWindow, PIXEL_FORMAT_RGBX_8888);
+    err =
+        native_window_set_buffers_format(nativeWindow, PIXEL_FORMAT_RGBX_8888);
     if (err != NO_ERROR) {
         ALOGE("ERROR: unable to native_window_set_buffers_format\n");
         return EXIT_FAILURE;
@@ -64,24 +63,31 @@ int drawNativeSurface(sp<NativeSurfaceWrapper> nativeSurface) {
     }
 
     // 5. set the ANativeWindow scale mode
-    err = native_window_set_scaling_mode(nativeWindow, NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
+    err = native_window_set_scaling_mode(
+        nativeWindow, NATIVE_WINDOW_SCALING_MODE_SCALE_TO_WINDOW);
     if (err != NO_ERROR) {
-        ALOGE("native_window_set_scaling_mode failed: %s (%d)", strerror(-err), -err);
+        ALOGE("native_window_set_scaling_mode failed: %s (%d)", strerror(-err),
+              -err);
         return err;
     }
 
-    // 6. set the ANativeWindow permission to allocte new buffer, default is true
-    static_cast<Surface*>(nativeWindow)->getIGraphicBufferProducer()->allowAllocation(true);
+    // 6. set the ANativeWindow permission to allocte new buffer, default is
+    // true
+    static_cast<Surface*>(nativeWindow)
+        ->getIGraphicBufferProducer()
+        ->allowAllocation(true);
 
     // 7. set the ANativeWindow buffer count
     int numBufs = 0;
     int minUndequeuedBufs = 0;
 
-    err = nativeWindow->query(nativeWindow,
-            NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS, &minUndequeuedBufs);
+    err = nativeWindow->query(
+        nativeWindow, NATIVE_WINDOW_MIN_UNDEQUEUED_BUFFERS, &minUndequeuedBufs);
     if (err != NO_ERROR) {
-        ALOGE("error: MIN_UNDEQUEUED_BUFFERS query "
-                "failed: %s (%d)", strerror(-err), -err);
+        ALOGE(
+            "error: MIN_UNDEQUEUED_BUFFERS query "
+            "failed: %s (%d)",
+            strerror(-err), -err);
         goto handle_error;
     }
 
@@ -92,65 +98,54 @@ int drawNativeSurface(sp<NativeSurfaceWrapper> nativeSurface) {
         goto handle_error;
     }
 
-    // 8. draw the ANativeWindow
-    while(!mQuit) {
-        // 9. dequeue a buffer
-        int releaseFenceFd = -1;
-        err = nativeWindow->dequeueBuffer(nativeWindow, &nativeBuffer, &releaseFenceFd);
-        if (err != NO_ERROR) {
-            ALOGE("error: dequeueBuffer failed: %s (%d)",
-                    strerror(-err), -err);
-            break;
-        }
+    display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+    eglInitialize(display, &majorVersion, &minorVersion);
+    ALOGI("%s   majorVersion: %d minorVersion: %d", __func__, majorVersion,
+          minorVersion);
+    eglChooseConfig(display, attrs, &config, 1, &numConfigs);
+    ALOGI("%s   numConfigs: %d", __func__, numConfigs);
 
-        // 10. make sure really control the dequeued buffer
-        sp<Fence> releaseFence(new Fence(releaseFenceFd));
-        int waitResult = releaseFence->waitForever("dequeueBuffer_EmptyNative");
-        if (waitResult != OK) {
-            ALOGE("dequeueBuffer_EmptyNative: Fence::wait returned an error: %d", waitResult);
-            break;
-        }
+    eglSurface = eglCreateWindowSurface(
+        display, config, static_cast<Surface*>(nativeWindow), NULL);
+    if (eglSurface == EGL_NO_SURFACE) {
+        ALOGE("error eglCreateWindowSurface failed: %s",
+              strerror(eglGetError()));
+        goto handle_error;
+    }
 
-        sp<GraphicBuffer> buf(GraphicBuffer::from(nativeBuffer));
+    eglContext = eglCreateContext(display, config, NULL, NULL);
+    if (eglContext == EGL_NO_CONTEXT) {
+        ALOGE("error eglCreateContext failed: %s", strerror(eglGetError()));
+        goto handle_error;
+    }
 
-        // 11. Fill the buffer with black
-        uint8_t* img = nullptr;
-        err = buf->lock(GRALLOC_USAGE_SW_WRITE_OFTEN, (void**)(&img));
-        if (err != NO_ERROR) {
-            ALOGE("error: lock failed: %s (%d)", strerror(-err), -err);
-            break;
-        }
+    eglQuerySurface(display, eglSurface, EGL_WIDTH, &w);
+    eglQuerySurface(display, eglSurface, EGL_HEIGHT, &h);
+    ALOGI("%s   w: %d h: %d", __func__, w, h);
+    if (eglMakeCurrent(display, eglSurface, eglSurface, eglContext) ==
+        EGL_FALSE)
+        return NO_INIT;
 
-        //12. Draw the window
-        countFrame = (countFrame+1)%3;
-        fillRGBA8Buffer(img, nativeSurface->width(), nativeSurface->height(), buf->getStride(),
-                        countFrame == 0 ? 255 : 0,
-                        countFrame == 1 ? 255 : 0,
-                        countFrame == 2 ? 255 : 0);
+    glShadeModel(GL_FLAT);
+    glDisable(GL_DITHER);
+    glDisable(GL_SCISSOR_TEST);
 
-        err = buf->unlock();
-        if (err != NO_ERROR) {
-            ALOGE("error: unlock failed: %s (%d)", strerror(-err), -err);
-            break;
-        }
+    while (!mQuit) {
+        glClearColor(0, 255, 0, 1);
+        glClear(GL_COLOR_BUFFER_BIT);
 
-        // 13. queue the buffer to display
-        int acquireFenceFd = -1;
-        err = nativeWindow->queueBuffer(nativeWindow, buf->getNativeBuffer(), acquireFenceFd);
-        if (err != NO_ERROR) {
-            ALOGE("error: queueBuffer failed: %s (%d)", strerror(-err), -err);
-            break;
-        }
+        eglSwapBuffers(display, eglSurface);
 
-        nativeBuffer = nullptr;
         sleep(1);
     }
 
 handle_error:
-    // 14. cancel buffer
-    if (nativeBuffer != nullptr) {
-        nativeWindow->cancelBuffer(nativeWindow, nativeBuffer, -1);
-        nativeBuffer = nullptr;
+
+    if (eglSurface != EGL_NO_SURFACE) {
+        eglDestroySurface(display, eglSurface);
+    }
+    if (eglContext != EGL_NO_CONTEXT) {
+        eglDestroyContext(display, eglContext);
     }
 
     // 15. Clean up after success or error.
@@ -163,7 +158,7 @@ handle_error:
 }
 
 void sighandler(int num) {
-    if(num == SIGINT) {
+    if (num == SIGINT) {
         printf("\nSIGINT: Force to stop !\n");
         mQuit = true;
     }
@@ -172,7 +167,8 @@ void sighandler(int num) {
 int main() {
     signal(SIGINT, sighandler);
 
-    sp<NativeSurfaceWrapper> nativeSurface(new NativeSurfaceWrapper(String8("NativeSFDemo")));
+    sp<NativeSurfaceWrapper> nativeSurface(
+        new NativeSurfaceWrapper(String8("NativeSFDemo")));
     drawNativeSurface(nativeSurface);
     return 0;
 }

@@ -4,18 +4,18 @@
 
 #define LOG_TAG "NativeSurfaceWrapper"
 
+#include "NativeSurfaceWrapper.h"
+
 #include <android-base/properties.h>
 #include <gui/ISurfaceComposerClient.h>
 #include <gui/Surface.h>
 #include <gui/SurfaceComposerClient.h>
 #include <utils/Log.h>
 
-#include "NativeSurfaceWrapper.h"
 
 namespace android {
 
-NativeSurfaceWrapper::NativeSurfaceWrapper(const String8& name) 
-    : mName(name) {}
+NativeSurfaceWrapper::NativeSurfaceWrapper(const String8& name) : mName(name) {}
 
 void NativeSurfaceWrapper::onFirstRef() {
     sp<SurfaceComposerClient> surfaceComposerClient = new SurfaceComposerClient;
@@ -27,27 +27,25 @@ void NativeSurfaceWrapper::onFirstRef() {
 
     // Get main display parameters.
     sp<IBinder> displayToken = SurfaceComposerClient::getInternalDisplayToken();
-    if (displayToken == nullptr)
-        return;
+    if (displayToken == nullptr) return;
 
     ui::DisplayMode displayMode;
     const status_t error =
-            SurfaceComposerClient::getActiveDisplayMode(displayToken, &displayMode);
-    if (error != NO_ERROR)
-        return;
+        SurfaceComposerClient::getActiveDisplayMode(displayToken, &displayMode);
+    if (error != NO_ERROR) return;
 
     ui::Size resolution = displayMode.resolution;
     resolution = limitSurfaceSize(resolution.width, resolution.height);
     // create the native surface
-    sp<SurfaceControl> surfaceControl = surfaceComposerClient->createSurface(mName, resolution.getWidth(), 
-                                                                             resolution.getHeight(), PIXEL_FORMAT_RGBA_8888,
-                                                                             ISurfaceComposerClient::eFXSurfaceBufferState,
-                                                                             /*parent*/ nullptr);
+    sp<SurfaceControl> surfaceControl = surfaceComposerClient->createSurface(
+        mName, resolution.getWidth(), resolution.getHeight(),
+        PIXEL_FORMAT_RGBA_8888, ISurfaceComposerClient::eFXSurfaceBufferState,
+        /*parent*/ nullptr);
 
     SurfaceComposerClient::Transaction{}
-            .setLayer(surfaceControl, std::numeric_limits<int32_t>::max())
-            .show(surfaceControl)
-            .apply();
+        .setLayer(surfaceControl, std::numeric_limits<int32_t>::max())
+        .show(surfaceControl)
+        .apply();
 
     mSurfaceControl = surfaceControl;
     mWidth = resolution.getWidth();
@@ -64,8 +62,10 @@ ui::Size NativeSurfaceWrapper::limitSurfaceSize(int width, int height) const {
     bool wasLimited = false;
     const float aspectRatio = float(width) / float(height);
 
-    int maxWidth = android::base::GetIntProperty("ro.surface_flinger.max_graphics_width", 0);
-    int maxHeight = android::base::GetIntProperty("ro.surface_flinger.max_graphics_height", 0);
+    int maxWidth = android::base::GetIntProperty(
+        "ro.surface_flinger.max_graphics_width", 0);
+    int maxHeight = android::base::GetIntProperty(
+        "ro.surface_flinger.max_graphics_height", 0);
 
     if (maxWidth != 0 && width > maxWidth) {
         limited.height = maxWidth / aspectRatio;
@@ -77,9 +77,10 @@ ui::Size NativeSurfaceWrapper::limitSurfaceSize(int width, int height) const {
         limited.width = maxHeight * aspectRatio;
         wasLimited = true;
     }
-    SLOGV_IF(wasLimited, "Surface size has been limited to [%dx%d] from [%dx%d]",
+    SLOGV_IF(wasLimited,
+             "Surface size has been limited to [%dx%d] from [%dx%d]",
              limited.width, limited.height, width, height);
     return limited;
 }
 
-} // namespace android
+}  // namespace android

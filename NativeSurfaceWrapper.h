@@ -20,7 +20,7 @@ public:
     virtual void onFirstRef();
 
     // Retrieves a handle to the window.
-    sp<ANativeWindow>  getSurface() const;
+    sp<ANativeWindow> getSurface() const;
 
     int width() { return mWidth; }
     int height() { return mHeight; }
@@ -35,6 +35,6 @@ private:
     String8 mName;
 };
 
-} // namespace android
+}  // namespace android
 
-#endif // SURFACE_WRAPPER_H
+#endif  // SURFACE_WRAPPER_H
