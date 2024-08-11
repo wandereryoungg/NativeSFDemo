@@ -4,26 +4,69 @@
 
 #define LOG_TAG "NativeSFDemo"
 
+#include <SkBitmap.h>
+#include <SkCanvas.h>
+#include <SkEncodedImageFormat.h>
+#include <SkFont.h>
+#include <SkFontStyle.h>
+#include <SkImageEncoder.h>
+#include <SkStream.h>
+#include <SkTypeface.h>
 #include <binder/IPCThreadState.h>
 #include <binder/IServiceManager.h>
 #include <binder/ProcessState.h>
 #include <hardware/gralloc.h>
 #include <ui/GraphicBuffer.h>
 #include <utils/Log.h>
-#include <SkBitmap.h>
-#include <SkCanvas.h>
-#include <SkTypeface.h>
-#include <SkFontStyle.h>
-#include <SkFont.h>
-#include <SkStream.h>
-#include <SkEncodedImageFormat.h>
-#include <SkImageEncoder.h>
 
 #include "NativeSurfaceWrapper.h"
 
 using namespace android;
 
 bool mQuit = false;
+
+enum Color {
+    Red_500 = 0xFFF44336,
+    Pink_500 = 0xFFE91E63,
+    Purple_500 = 0xFF9C27B0,
+    DeepPurple_500 = 0xFF673AB7,
+    Indigo_500 = 0xFF3F51B5,
+    Blue_500 = 0xFF2196F3,
+    LightBlue_300 = 0xFF4FC3F7,
+    LightBlue_500 = 0xFF03A9F4,
+    Cyan_500 = 0xFF00BCD4,
+    Teal_500 = 0xFF008577,
+    Teal_700 = 0xFF00796B,
+    Green_500 = 0xFF4CAF50,
+    Green_700 = 0xFF388E3C,
+    LightGreen_500 = 0xFF8BC34A,
+    LightGreen_700 = 0xFF689F38,
+    Lime_500 = 0xFFCDDC39,
+    Yellow_500 = 0xFFFFEB3B,
+    Amber_500 = 0xFFFFC107,
+    Orange_500 = 0xFFFF9800,
+    DeepOrange_500 = 0xFFFF5722,
+    Brown_500 = 0xFF795548,
+    Grey_200 = 0xFFEEEEEE,
+    Grey_500 = 0xFF9E9E9E,
+    Grey_700 = 0xFF616161,
+    BlueGrey_500 = 0xFF607D8B,
+    Transparent = 0x00000000,
+    Black = 0xFF000000,
+    White = 0xFFFFFFFF,
+};
+
+// Array of bright (500 intensity) colors for synthetic content
+static const Color BrightColors[] = {
+    Color::Red_500,        Color::Pink_500,       Color::Purple_500,
+    Color::DeepPurple_500, Color::Indigo_500,     Color::Blue_500,
+    Color::LightBlue_500,  Color::Cyan_500,       Color::Teal_500,
+    Color::Green_500,      Color::LightGreen_500, Color::Lime_500,
+    Color::Yellow_500,     Color::Amber_500,      Color::Orange_500,
+    Color::DeepOrange_500, Color::Brown_500,      Color::Grey_500,
+    Color::BlueGrey_500,
+};
+static constexpr int BrightColorsCount = sizeof(BrightColors) / sizeof(Color);
 
 void saveBitmapToFile(const SkBitmap& bitmap, const char* filename) {
     SkFILEWStream stream(filename);
@@ -120,32 +163,56 @@ int drawNativeSurface(sp<NativeSurfaceWrapper> nativeSurface) {
     while (!mQuit) {
         ANativeWindow_Buffer buffer;
         if (ANativeWindow_lock(nativeWindow, &buffer, NULL) == 0) {
-
-            SkImageInfo info = SkImageInfo::Make(buffer.width, buffer.height, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
+            SkImageInfo info =
+                SkImageInfo::Make(buffer.width, buffer.height,
+                                  kRGBA_8888_SkColorType, kPremul_SkAlphaType);
             ssize_t bytesPerLine = buffer.stride * bytesPerPixel(buffer.format);
             ALOGI("%s   bytesPerLine: %zu", __func__, bytesPerLine);
             SkBitmap bitmap;
             bitmap.installPixels(info, buffer.bits, bytesPerLine);
-            // bitmap.allocPixels(info);
 
             SkPaint paint;
             paint.setAntiAlias(true);
-            paint.setColor(SK_ColorRED);
+
+            SkColor color = BrightColors[rand() % BrightColorsCount];
+            paint.setColor(color);
+            paint.setStyle(SkPaint::kStroke_Style);
+            paint.setStrokeWidth(5.0f);
 
             SkCanvas canvas(bitmap);
-
-            std::string tmp = "hello " + std::to_string(countFrame);
-            SkString drawStr(tmp);
-
-            SkFont font(SkTypeface::MakeFromName("monospace", SkFontStyle()), 20);
 
             canvas.clear(SK_ColorTRANSPARENT);
             canvas.drawColor(SK_ColorWHITE);
 
             canvas.drawRect(SkRect::MakeLTRB(10, 10, 200, 200), paint);
 
-            canvas.drawSimpleText(drawStr.c_str(), drawStr.size(), SkTextEncoding::kUTF8, buffer.width / 2, buffer.height / 2, font, paint);
-            ALOGI("%s   draw Text: %s len: %zu", __func__, drawStr.c_str(), drawStr.size());
+            canvas.drawCircle(buffer.width / 2, buffer.height / 2,
+                              buffer.height / 4, paint);
+
+            SkPaint wordPaint;
+            wordPaint.setAntiAlias(true);
+            SkColor randomColor = BrightColors[rand() % BrightColorsCount];
+            wordPaint.setColor(randomColor);
+
+            canvas.translate(buffer.width / 2, buffer.height / 2);
+
+            sk_sp<SkData> data =
+                SkData::MakeFromFileName("/system/fonts/Roboto-Regular.ttf");
+            std::unique_ptr<SkStreamAsset> stream =
+                std::unique_ptr<SkStreamAsset>(
+                    new SkMemoryStream(std::move(data)));
+            sk_sp<SkTypeface> ttf =
+                SkTypeface::MakeFromStream(std::move(stream), 0);
+            SkFont font(ttf, 80);
+
+            std::string tmp = "hello from skia " + std::to_string(countFrame);
+            SkString drawStr(tmp);
+
+            canvas.drawSimpleText(drawStr.c_str(), drawStr.size(),
+                                  SkTextEncoding::kUTF8, 0, 0, font, wordPaint);
+
+            ALOGI("%s   draw Text: %s len: %zu", __func__, drawStr.c_str(),
+                  drawStr.size());
 
             /*
             static bool debug = true;

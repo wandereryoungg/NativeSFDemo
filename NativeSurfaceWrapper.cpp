@@ -12,7 +12,6 @@
 #include <gui/SurfaceComposerClient.h>
 #include <utils/Log.h>
 
-
 namespace android {
 
 NativeSurfaceWrapper::NativeSurfaceWrapper(const String8& name) : mName(name) {}
