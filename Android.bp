@@ -38,3 +38,39 @@ cc_binary {
     ],
 }
 
+cc_defaults {
+    name: "demo_defaults",
+
+    cflags: [
+        "-Wall",
+        "-Werror",
+        "-Wunused",
+        "-Wunreachable-code",
+    ],
+
+    shared_libs: [
+        "libbase",
+        "libbinder",
+        "libcutils",
+        "liblog",
+        "libutils",
+        "libui",
+        "libgui",
+        "libEGL",
+        "libGLESv1_CM",
+    ],
+}
+
+cc_binary {
+    name: "DispalyDemo",
+    defaults: ["demo_defaults"],
+    srcs: [
+        "main.cpp",
+    ],
+
+    cflags: [
+        "-Wno-deprecated-declarations",
+        "-Wno-unused-parameter"
+    ],
+}
+
